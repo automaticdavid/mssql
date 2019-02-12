@@ -1,133 +1,116 @@
 ---
 
-- name: Install & Configure MSSQL on RHEL
-  hosts: "{{ mssql_ip }}"
-  gather_facts: yes
-  become: yes
+- name: Enforce Red Hat Subscription Manager present
+  yum:
+    name: subscription-manager
+    state: present
 
+- name: Register system into RHSM
+  redhat_subscription:
+    state: present
+    username: "{{ rhsm_username }}"
+    password: "{{ rhsm_password }}"
+    force_register: True
+
+- name: Install firewalld
+  yum:
+    name: firewalld
+    state: latest
+
+- name: Start firewall service
+  systemd: 
+    name: firewalld 
+    masked: no  
+    enabled: yes
+    state: started
+
+- name: Configure firewall for MS-SQL
+  firewalld:
+    port: "{{ item }}/tcp"
+    permanent: true
+    state: enabled
+    immediate: true
+  with_items: 
+    - "{{ mssql_port }}"
+
+- name: Restart firewall service
+  systemd: 
+    name: firewalld 
+    masked: no  
+    enabled: yes
+    state: restarted
+
+- name: Setup the MS-SQL Repository
+  yum_repository:
+    name: packages-microsoft-com-mssql-server-2017
+    description: microsoft.com mssql-server-2017
+    file: external_repos
+    baseurl: https://packages.microsoft.com/rhel/7/mssql-server-2017/
+    gpgcheck: yes
+    gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+    enabled: yes
+
+- name: Install MS-SQL
+  yum:
+    name: mssql-server
+    state: latest
+
+- name: Setup the MS-SQL Tools Repository
+  yum_repository:
+    name: packages-microsoft-com-prod
+    description: microsoft.com packages prod
+    file: external_repos
+    baseurl: https://packages.microsoft.com/rhel/7/prod/
+    gpgcheck: yes
+    gpgkey: https://packages.microsoft.com/keys/microsoft.asc
+    enabled: yes
+
+- name: Install MS-SQL utilities 
+  yum:
+    name: "{{ packages }}"
   vars:
-    rhn_username: "{{ rhsm_username }}"
-    rhn_password: "{{ rhsm_password }}"
-    rhn_poolid: "{{ rhn_poolid }}"
-    mssql_ip: "{{ mssql_ip }}"
-    mssql_user: "{{ mssql_user }}"
-    msssql_password: "{{ mssql_password }}"
-    mssql_db_name: "{{ mssql_db_name }}"
-    mssql_port: "{{ mssql_port }}"
+    packages:
+    - mssql-tools 
+    - unixODBC-devel
+  environment:
+    ACCEPT_EULA: 'y'
+  
+# - name: Generate SA password
+#   set_fact:
+#     sql_sa_password: "{{ lookup('password', '/dev/null') }}"
+#   no_log: True
 
-  tasks: 
+- name: Check MS-SQL Configuration
+  command: /opt/mssql/bin/mssql-conf validate
+  register: sql_configured
+  changed_when: False 
+  environment:
+      MSSQL_SA_PASSWORD: "{{ mssql_password }}"
+      MSSQL_PID: express 
+  no_log: True
 
-    - name: Enforce Red Hat Subscription Manager present
-      yum:
-        name: subscription-manager
-        state: present
+- name: Run MS-SQL Configuration
+  command:  /opt/mssql/bin/mssql-conf -n setup accept-eula
+  when: sql_configured != 0
+  environment:
+      MSSQL_SA_PASSWORD: "{{ mssql_password }}"
+      MSSQL_PID: express
+  no_log: True 
 
-    - name: Register system into RHSM
-      redhat_subscription:
-        state: present
-        username: "{{ rhsm_username }}"
-        password: "{{ rhsm_password }}"
-        force_register: True
+- name: List DBs
+  command:  /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P {{ mssql_password | quote }} -Q 'SELECT Name from sys.Databases;' 
+  register: sql_db_list
+  changed_when: False 
+  no_log: True
 
-    - name: Install firewalld
-      yum:
-        name: firewalld
-        state: latest
+- name: Check if {{ mssql_db_name }} DB is present
+  set_fact: 
+    db_defined: "{{ sql_db_list.stdout_lines | select('match', mssql_db_name) | list }}"
+  no_log: True
 
-    - name: Start firewall service
-      systemd: 
-        name: firewalld 
-        masked: no  
-        enabled: yes
-        state: started
-
-    - name: Configure firewall for MS-SQL
-      firewalld:
-        port: "{{ item }}/tcp"
-        permanent: true
-        state: enabled
-        immediate: true
-      with_items: 
-        - "{{ mssql_port }}"
-
-    - name: Restart firewall service
-      systemd: 
-        name: firewalld 
-        masked: no  
-        enabled: yes
-        state: restarted
-
-    - name: Setup the MS-SQL Repository
-      yum_repository:
-        name: packages-microsoft-com-mssql-server-2017
-        description: microsoft.com mssql-server-2017
-        file: external_repos
-        baseurl: https://packages.microsoft.com/rhel/7/mssql-server-2017/
-        gpgcheck: yes
-        gpgkey: https://packages.microsoft.com/keys/microsoft.asc
-        enabled: yes
-
-    - name: Install MS-SQL
-      yum:
-        name: mssql-server
-        state: latest
-
-    - name: Setup the MS-SQL Tools Repository
-      yum_repository:
-        name: packages-microsoft-com-prod
-        description: microsoft.com packages prod
-        file: external_repos
-        baseurl: https://packages.microsoft.com/rhel/7/prod/
-        gpgcheck: yes
-        gpgkey: https://packages.microsoft.com/keys/microsoft.asc
-        enabled: yes
-
-    - name: Install MS-SQL utilities 
-      yum:
-        name: "{{ packages }}"
-      vars:
-        packages:
-        - mssql-tools 
-        - unixODBC-devel
-      environment:
-        ACCEPT_EULA: 'y'
-      
-    # - name: Generate SA password
-    #   set_fact:
-    #     sql_sa_password: "{{ lookup('password', '/dev/null') }}"
-    #   no_log: True
-
-    - name: Check MS-SQL Configuration
-      command: /opt/mssql/bin/mssql-conf validate
-      register: sql_configured
-      changed_when: False 
-      environment:
-         MSSQL_SA_PASSWORD: "{{ mssql_password }}"
-         MSSQL_PID: express 
-      no_log: True
-
-    - name: Run MS-SQL Configuration
-      command:  /opt/mssql/bin/mssql-conf -n setup accept-eula
-      when: sql_configured != 0
-      environment:
-         MSSQL_SA_PASSWORD: "{{ mssql_password }}"
-         MSSQL_PID: express
-      no_log: True 
-
-    - name: List DBs
-      command:  /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P {{ mssql_password | quote }} -Q 'SELECT Name from sys.Databases;' 
-      register: sql_db_list
-      changed_when: False 
-      no_log: True
-
-    - name: Check if {{ mssql_db_name }} DB is present
-      set_fact: 
-        db_defined: "{{ sql_db_list.stdout_lines | select('match', mssql_db_name) | list }}"
-      no_log: True
-
-    - name: Create the monolith DB if needed
-      command: /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P {{ mssql_password | quote }} -Q 'CREATE DATABASE {{ mssql_db_name | quote }};' 
-      when: db_defined.0 is not defined
+- name: Create the monolith DB if needed
+  command: /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P {{ mssql_password | quote }} -Q 'CREATE DATABASE {{ mssql_db_name | quote }};' 
+  when: db_defined.0 is not defined
 
 
 
