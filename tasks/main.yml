@@ -1,7 +1,7 @@
 ---
 
 - name: Install & Configure MSSQL on RHEL
-  hosts: {{scope}}
+  hosts: "{{ mssql_ip }}"
   gather_facts: yes
   become: yes
 
