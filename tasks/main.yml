@@ -5,7 +5,7 @@
     name: "{{ itemp }}"
     state: latest
   with_item: 
-    - subscription_manager
+    - subscription-manager
     - firewalld 
 
 - name: Register system into RHSM
