@@ -8,8 +8,8 @@
 - name: Register system into RHSM
   redhat_subscription:
     state: present
-    username: "{{ rhsm_username }}"
-    password: "{{ rhsm_password }}"
+    username: "{{ rhn_username }}"
+    password: "{{ rhn_password }}"
     force_register: True
 
 - name: Install firewalld
