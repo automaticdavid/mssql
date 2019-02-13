@@ -2,11 +2,10 @@
 
 - name: Enforce Red Hat Subscription Manager present
   yum:
-    name: "{{ itemp }}"
+    name: 
+      - subscription-manager
+      - firewalld
     state: latest
-  with_item: 
-    - subscription-manager
-    - firewalld 
 
 - name: Register system into RHSM
   redhat_subscription:
